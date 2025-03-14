@@ -14,4 +14,4 @@
 #sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
 
 # Add a feed source
-echo 'src-git fancontrol https://github.com/rockjake/luci-app-fancontrol.git' >>feeds.conf.default
+echo 'src-git fancontrol https://github.com/Kazagumo/luci-app-fancontrol.git' >>feeds.conf.default
