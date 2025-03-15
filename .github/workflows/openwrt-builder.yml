@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_URL: https://github.com/VFool/immortalwrt
   REPO_BRANCH: openwrt-23.05
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
@@ -57,10 +57,6 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
         
-    - name: Apply Custom Patches
-      run: |
-        git apply -C openwrt am ../patches/*.patch
-
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
