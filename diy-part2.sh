@@ -13,9 +13,6 @@
 # 添加 UA2F
 git clone --depth=1 https://github.com/EOYOHOO/UA2F.git package/UA2F
 
-# 添加 Turbo ACC 网络加速
-curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh
-
 # 修改 argon 为默认主题
 sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
 
