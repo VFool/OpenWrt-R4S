@@ -15,3 +15,6 @@
 
 # Add a feed source
 echo 'src-git fancontrol https://github.com/Kazagumo/luci-app-fancontrol.git' >>feeds.conf.default
+
+# 添加 Turbo ACC 网络加速
+curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh
