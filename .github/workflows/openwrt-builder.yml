@@ -26,6 +26,7 @@ env:
   UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
+  APPLY_PATCH: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -71,6 +72,7 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a
       
     - name: Apply patches
+      if: env.APPLY_PATCH == 'true' && !cancelled()
       run: |
            for patch_file in ${GITHUB_WORKSPACE}/patches/*.patch; do
             echo "Applying patch: $patch_file"
