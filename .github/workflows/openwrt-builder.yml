@@ -70,8 +70,12 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
       
-    - name: Apply patch
-      run: patch -p1 < "${GITHUB_WORKSPACE}/patches/*.patch"
+    - name: Apply patches
+      run: |
+           for patch_file in ${GITHUB_WORKSPACE}/patches/*.patch; do
+            echo "Applying patch: $patch_file"
+            patch -p1 < "$patch_file"
+           done
 
     - name: Load custom configuration
       run: |
