@@ -21,8 +21,8 @@ on:
         description: 应用补丁
         required: true
         options:
-        - 'yes'
-        - 'no'
+        - 'true'
+        - 'false'
 
 env:
   REPO_URL: https://github.com/coolsnowwolf/lede
@@ -79,7 +79,7 @@ jobs:
       run: cd openwrt && ./scripts/feeds install -a
       
     - name: Apply patches
-      if: inputs.APPLY_PATCH == 'yes' && !cancelled()
+      if: inputs.APPLY_PATCH == 'true' && !cancelled()
       run: |
            for patch_file in ${GITHUB_WORKSPACE}/patches/*.patch; do
             echo "Applying patch: $patch_file"
