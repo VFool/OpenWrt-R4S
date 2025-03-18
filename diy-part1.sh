@@ -15,4 +15,4 @@
 
 # Add a feed source
 echo 'src-git fancontrol https://github.com/Kazagumo/luci-app-fancontrol.git' >>feeds.conf.default
-echo 'src-git luci https://github.com/coolsnowwolf/luci.git' >>feeds.conf.default
+
