@@ -18,3 +18,6 @@ sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/M
 
 # 删除原默认主题
 rm -rf package/lean/luci-theme-bootstrap
+
+# TTYD 免登录
+sed -i 's|/bin/login|/bin/login -f root|g' feeds/packages/utils/ttyd/files/ttyd.config
