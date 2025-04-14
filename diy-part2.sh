@@ -21,3 +21,6 @@ rm -rf package/lean/luci-theme-bootstrap
 
 # TTYD 免登录
 sed -i 's|/bin/login|/bin/login -f root|g' feeds/packages/utils/ttyd/files/ttyd.config
+
+# 修改插件名字
+sed -i 's/"风扇通用控制小程序"/"风扇控制"/g' `egrep "风扇通用控制小程序" -rl ./`
