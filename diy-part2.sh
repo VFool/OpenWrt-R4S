@@ -24,3 +24,4 @@ sed -i 's|/bin/login|/bin/login -f root|g' feeds/packages/utils/ttyd/files/ttyd.
 
 # 修改插件名字
 sed -i 's/"风扇通用控制小程序"/"风扇控制"/g' `egrep "风扇通用控制小程序" -rl ./`
+sed -i 's/"CPU 性能优化调节"/"CPU 调节"/g' `egrep "CPU 性能优化调节" -rl ./`
