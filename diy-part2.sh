@@ -10,17 +10,13 @@
 # See /LICENSE for more information.
 #
 
-# 添加 UA2F
-#git clone --depth=1 https://github.com/EOYOHOO/UA2F.git package/UA2F
+# Modify default IP
+#sed -i 's/192.168.1.1/192.168.50.5/g' package/base-files/files/bin/config_generate
 
-# 修改 argon 为默认主题
-sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
+# Modify default theme
+#sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
 
-# 删除原默认主题
-rm -rf package/lean/luci-theme-bootstrap
-
-# TTYD 免登录
+# Modify hostname
+#sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+# TTYD免登录
 sed -i 's|/bin/login|/bin/login -f root|g' feeds/packages/utils/ttyd/files/ttyd.config
-
-# 修改插件名字
-sed -i 's/"风扇通用控制小程序"/"风扇控制"/g' `egrep "风扇通用控制小程序" -rl ./`
