@@ -1,20 +1,13 @@
-#
-# https://github.com/P3TERX/Actions-OpenWrt
-#
-# File: .github/workflows/openwrt-builder.yml
-# Description: Build OpenWrt using GitHub Actions (Optimized Version)
-#
-# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
-#
-# This is free software, licensed under the MIT License.
-# See /LICENSE for more information.
-#
-
 name: OpenWrt Builder
 
 on:
   repository_dispatch:
-  workflow_dispatch:          # 已删除无用的 inputs.APPLY_PATCH，保持触发界面简洁
+  workflow_dispatch:
+    inputs:
+      APPLY_PATCHES:
+        description: '应用补丁'
+        type: boolean
+        default: true
 
 env:
   REPO_URL: https://github.com/VFool/immortalwrt
@@ -27,7 +20,7 @@ env:
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  CCACHE_DIR: /workdir/ccache          # 启用 ccache
+  CCACHE_DIR: /workdir/ccache
   CCACHE_MAXSIZE: 2G
 
 jobs:
@@ -36,21 +29,18 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4        # 固定到稳定版 v4
+      uses: actions/checkout@v4
 
     - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo docker image prune --all --force
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install --no-install-recommends \
+        sudo apt-get -qq update
+        sudo apt-get -qq install --no-install-recommends \
           build-essential ccache flex gawk gettext git libncurses5-dev \
-          libssl-dev python3 python3-setuptools rsync subversion swig unzip wget \
-          zlib1g-dev file time
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+          libssl-dev python3 python3-setuptools rsync subversion swig unzip wget zlib1g-dev
+        sudo apt-get -qq autoremove --purge
+        sudo apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown -R $USER:$(id -gn) /workdir
@@ -58,18 +48,15 @@ jobs:
         mkdir -p $CCACHE_DIR
 
     - name: Clone source code
-      working-directory: /workdir
       run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        git clone $REPO_URL -b $REPO_BRANCH /workdir/openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-        
+
     - name: Load custom feeds
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
 
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
@@ -77,15 +64,23 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
+    - name: Apply patches (conditional)
+      if: github.event.inputs.APPLY_PATCHES == 'true'
+      run: |
+        cd openwrt
+        if [ -d "$GITHUB_WORKSPACE/patches" ]; then
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -f "$patch" ] && patch -p1 < "$patch"
+          done
+        fi
+
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+        cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    # 缓存 dl、build_dir 和 ccache，大幅加速二次构建
     - name: Cache build artifacts
       uses: actions/cache@v4
       with:
@@ -94,88 +89,75 @@ jobs:
           openwrt/build_dir
           ${{ env.CCACHE_DIR }}
         key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('openwrt/.config') }}
-        restore-keys: |
-          ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
+        restore-keys: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
 
     - name: Download package
-      id: package
       run: |
         cd openwrt
         make defconfig
         make download -j$(nproc)
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+        find dl -size -1024c -delete
 
     - name: Compile the firmware
-      id: compile
       run: |
         cd openwrt
-        echo "$(nproc) thread compile"
-        # 先尝试并行编译，失败后自动降级为单线程并输出详细日志
-        make -j$(nproc) V=sc || { echo "Multi-thread build failed, retrying with single thread verbose mode"; make -j1 V=s; }
-        echo "status=success" >> $GITHUB_OUTPUT
+        make -j$(nproc) V=sc || { echo "Fallback to single thread"; make -j1 V=s; }
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    - name: Check space usage
-      if: (!cancelled())
+    - name: Check disk usage
+      if: always()
       run: df -hT
 
     - name: Upload bin directory
       uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      if: success() && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
-    - name: Organize files for firmware upload
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+    - name: Organize firmware files
+      if: success() && env.UPLOAD_FIRMWARE == 'true'
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages
-        mkdir -p release
-        # 仅保留最终固件文件，避免上传无用的中间文件
+        mkdir release
         cp *sysupgrade.bin *factory.bin release/ 2>/dev/null || true
         echo "FIRMWARE=$PWD/release" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+      if: success() && env.UPLOAD_FIRMWARE == 'true'
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
     - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: success() && env.UPLOAD_RELEASE == 'true'
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
-        # 删除了原版中未定义的 UPLOAD_GOFILE 相关引用，避免潜在错误
-        echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2   # 固定到 v2 稳定版
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
+      if: success() && env.UPLOAD_RELEASE == 'true'
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Delete workflow runs
+    - name: Delete old workflow runs
       uses: Mattraks/delete-workflow-runs@v2
       with:
         retain_days: 0
         keep_minimum_runs: 2
 
-    - name: Remove old Releases
+    - name: Remove old releases
       uses: dev-drprasad/delete-older-releases@v0.2.1
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      if: success() && env.UPLOAD_RELEASE == 'true'
       with:
         keep_latest: 3
         delete_tags: true
