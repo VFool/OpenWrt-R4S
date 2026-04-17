@@ -38,7 +38,7 @@ jobs:
         sudo apt-get -qq update
         sudo apt-get -qq install --no-install-recommends \
           build-essential ccache flex gawk gettext git libncurses5-dev \
-          libssl-dev python3 python3-setuptools rsync subversion swig unzip wget zlib1g-dev
+          libssl-dev python3 python3-pyelftools python3-setuptools rsync subversion swig unzip wget zlib1g-dev
         sudo apt-get -qq autoremove --purge
         sudo apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
@@ -93,35 +93,52 @@ jobs:
       run: |
         cd openwrt
 
-        echo "Preparing kernel source..."
-        make target/linux/prepare V=s QUILT=1
-
-        KERNEL_BUILD_DIR=$(find build_dir/target-* -type d -name "linux-*" | head -1)
-        if [ -z "$KERNEL_BUILD_DIR" ]; then
-          echo "Error: Kernel build directory not found!"
-          exit 1
-        fi
-        echo "Kernel source located at: $KERNEL_BUILD_DIR"
-
-        if [ ! -d "$GITHUB_WORKSPACE/patches" ]; then
-          echo "No patches directory found, skipping."
-          exit 0
+        # 快速检查是否存在内核补丁，以决定是否需要 prepare 内核源码
+        NEED_KERNEL_PREPARE=false
+        if [ -d "$GITHUB_WORKSPACE/patches" ]; then
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -f "$patch" ] || continue
+            if grep -qE '^[-+]{3} [ab]/(arch|drivers|sound|fs|net|kernel|include)/' "$patch"; then
+              NEED_KERNEL_PREPARE=true
+              break
+            fi
+          done
         fi
 
-        for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
-          [ -f "$patch" ] || continue
-          echo "Processing $(basename "$patch")"
-
-          if grep -qE '^[-+]{3} [ab]/(arch|drivers|sound|fs|net|kernel|include)/' "$patch"; then
-            echo "  -> Detected as kernel patch, applying in kernel tree..."
-            (cd "$KERNEL_BUILD_DIR" && patch -p1 < "$patch") || \
-              echo "  -> Warning: Failed to apply kernel patch $(basename "$patch")"
-          else
-            echo "  -> Detected as OpenWrt patch, applying in OpenWrt root..."
-            patch -p1 < "$patch" || \
-              echo "  -> Warning: Failed to apply OpenWrt patch $(basename "$patch")"
+        if [ "$NEED_KERNEL_PREPARE" = true ]; then
+          echo "Kernel patches detected, preparing kernel source..."
+          make target/linux/prepare V=s QUILT=1
+          KERNEL_BUILD_DIR=$(find build_dir/target-* -type d -name "linux-*" | head -1)
+          if [ -z "$KERNEL_BUILD_DIR" ]; then
+            echo "Error: Kernel build directory not found!"
+            exit 1
           fi
-        done
+          echo "Kernel source located at: $KERNEL_BUILD_DIR"
+        else
+          echo "No kernel patches detected, skipping kernel preparation."
+        fi
+
+        if [ -d "$GITHUB_WORKSPACE/patches" ]; then
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -f "$patch" ] || continue
+            echo "Processing $(basename "$patch")"
+            if grep -qE '^[-+]{3} [ab]/(arch|drivers|sound|fs|net|kernel|include)/' "$patch"; then
+              if [ "$NEED_KERNEL_PREPARE" = true ]; then
+                echo "  -> Applying kernel patch in kernel tree..."
+                (cd "$KERNEL_BUILD_DIR" && patch -p1 < "$patch") || \
+                  echo "  -> Warning: Failed to apply kernel patch $(basename "$patch")"
+              else
+                echo "  -> Skipping kernel patch (kernel preparation bypassed)."
+              fi
+            else
+              echo "  -> Applying OpenWrt patch in OpenWrt root..."
+              patch -p1 < "$patch" || \
+                echo "  -> Warning: Failed to apply OpenWrt patch $(basename "$patch")"
+            fi
+          done
+        else
+          echo "No patches directory found, skipping."
+        fi
 
     - name: Compile the firmware
       run: |
