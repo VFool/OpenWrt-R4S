@@ -64,16 +64,6 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
-    - name: Apply patches (conditional)
-      if: github.event.inputs.APPLY_PATCHES == 'true'
-      run: |
-        cd openwrt
-        if [ -d "$GITHUB_WORKSPACE/patches" ]; then
-          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
-            [ -f "$patch" ] && patch -p1 < "$patch"
-          done
-        fi
-
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
@@ -97,6 +87,41 @@ jobs:
         make defconfig
         make download -j$(nproc)
         find dl -size -1024c -delete
+
+    - name: Apply patches (conditional)
+      if: github.event.inputs.APPLY_PATCHES == 'true'
+      run: |
+        cd openwrt
+
+        echo "Preparing kernel source..."
+        make target/linux/prepare V=s QUILT=1
+
+        KERNEL_BUILD_DIR=$(find build_dir/target-* -type d -name "linux-*" | head -1)
+        if [ -z "$KERNEL_BUILD_DIR" ]; then
+          echo "Error: Kernel build directory not found!"
+          exit 1
+        fi
+        echo "Kernel source located at: $KERNEL_BUILD_DIR"
+
+        if [ ! -d "$GITHUB_WORKSPACE/patches" ]; then
+          echo "No patches directory found, skipping."
+          exit 0
+        fi
+
+        for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+          [ -f "$patch" ] || continue
+          echo "Processing $(basename "$patch")"
+
+          if grep -qE '^[-+]{3} [ab]/(arch|drivers|sound|fs|net|kernel|include)/' "$patch"; then
+            echo "  -> Detected as kernel patch, applying in kernel tree..."
+            (cd "$KERNEL_BUILD_DIR" && patch -p1 < "$patch") || \
+              echo "  -> Warning: Failed to apply kernel patch $(basename "$patch")"
+          else
+            echo "  -> Detected as OpenWrt patch, applying in OpenWrt root..."
+            patch -p1 < "$patch" || \
+              echo "  -> Warning: Failed to apply OpenWrt patch $(basename "$patch")"
+          fi
+        done
 
     - name: Compile the firmware
       run: |
