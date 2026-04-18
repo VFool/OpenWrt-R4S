@@ -3,6 +3,11 @@ name: OpenWrt Builder
 on:
   repository_dispatch:
   workflow_dispatch:
+    inputs:
+      APPLY_PATCHES:
+        description: '应用补丁'
+        type: boolean
+        default: true
 
 env:
   REPO_URL: https://github.com/VFool/immortalwrt
@@ -82,6 +87,58 @@ jobs:
         make defconfig
         make download -j$(nproc)
         find dl -size -1024c -delete
+
+    - name: Apply patches (conditional)
+      if: github.event.inputs.APPLY_PATCHES == 'true'
+      run: |
+        cd openwrt
+
+        # 快速检查是否存在内核补丁，以决定是否需要 prepare 内核源码
+        NEED_KERNEL_PREPARE=false
+        if [ -d "$GITHUB_WORKSPACE/patches" ]; then
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -f "$patch" ] || continue
+            if grep -qE '^[-+]{3} [ab]/(arch|drivers|sound|fs|net|kernel|include)/' "$patch"; then
+              NEED_KERNEL_PREPARE=true
+              break
+            fi
+          done
+        fi
+
+        if [ "$NEED_KERNEL_PREPARE" = true ]; then
+          echo "Kernel patches detected, preparing kernel source..."
+          make target/linux/prepare V=s QUILT=1
+          KERNEL_BUILD_DIR=$(find build_dir/target-* -type d -name "linux-*" | head -1)
+          if [ -z "$KERNEL_BUILD_DIR" ]; then
+            echo "Error: Kernel build directory not found!"
+            exit 1
+          fi
+          echo "Kernel source located at: $KERNEL_BUILD_DIR"
+        else
+          echo "No kernel patches detected, skipping kernel preparation."
+        fi
+
+        if [ -d "$GITHUB_WORKSPACE/patches" ]; then
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -f "$patch" ] || continue
+            echo "Processing $(basename "$patch")"
+            if grep -qE '^[-+]{3} [ab]/(arch|drivers|sound|fs|net|kernel|include)/' "$patch"; then
+              if [ "$NEED_KERNEL_PREPARE" = true ]; then
+                echo "  -> Applying kernel patch in kernel tree..."
+                (cd "$KERNEL_BUILD_DIR" && patch -p1 < "$patch") || \
+                  echo "  -> Warning: Failed to apply kernel patch $(basename "$patch")"
+              else
+                echo "  -> Skipping kernel patch (kernel preparation bypassed)."
+              fi
+            else
+              echo "  -> Applying OpenWrt patch in OpenWrt root..."
+              patch -p1 < "$patch" || \
+                echo "  -> Warning: Failed to apply OpenWrt patch $(basename "$patch")"
+            fi
+          done
+        else
+          echo "No patches directory found, skipping."
+        fi
 
     - name: Compile the firmware
       run: |
