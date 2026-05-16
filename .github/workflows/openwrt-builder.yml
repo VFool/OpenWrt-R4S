@@ -43,13 +43,13 @@ jobs:
         mkdir -p $CCACHE_DIR
 
     - name: Clone source code
-    run: |
-      REPO_URL_WITH_TOKEN="https://x-access-token:${{ secrets.REPO_TOKEN }}@${REPO_URL#https://}"
-      git clone $REPO_URL_WITH_TOKEN -b $REPO_BRANCH /workdir/openwrt
-      ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-      cd /workdir/openwrt
-      chmod +x scripts/* config/* 2>/dev/null || true
-      find . -name "*.sh" -exec chmod +x {} \;
+      run: |
+        REPO_URL_WITH_TOKEN="https://x-access-token:${{ secrets.REPO_TOKEN }}@${REPO_URL#https://}"
+        git clone $REPO_URL_WITH_TOKEN -b $REPO_BRANCH /workdir/openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        cd /workdir/openwrt
+        chmod +x scripts/* config/* 2>/dev/null || true
+        find . -name "*.sh" -exec chmod +x {} \;
 
     - name: Load custom feeds
       run: |
