@@ -47,6 +47,7 @@ jobs:
         REPO_URL_WITH_TOKEN="https://x-access-token:${{ secrets.REPO_TOKEN }}@${REPO_URL#https://}"
         git clone $REPO_URL_WITH_TOKEN -b $REPO_BRANCH /workdir/openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        chmod +x /workdir/openwrt/scripts/* 2>/dev/null || true
 
     - name: Load custom feeds
       run: |
