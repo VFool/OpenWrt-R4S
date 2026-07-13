@@ -11,7 +11,7 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: true
+  UPLOAD_BIN_DIR: false           # 不传整个 bin 目录（节省空间）
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -44,8 +44,7 @@ jobs:
 
     - name: Clone source code
       run: |
-        REPO_URL_WITH_TOKEN="https://x-access-token:${{ secrets.REPO_TOKEN }}@${REPO_URL#https://}"
-        git clone $REPO_URL_WITH_TOKEN -b $REPO_BRANCH /workdir/openwrt
+        git clone $REPO_URL -b $REPO_BRANCH /workdir/openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
         cd /workdir/openwrt
         chmod +x scripts/* config/* 2>/dev/null || true
@@ -53,7 +52,8 @@ jobs:
 
     - name: Load custom feeds
       run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        # 使用 cp 保留原文件，确保缓存 hash 能正确计算
+        [ -e $FEEDS_CONF ] && cp $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_P1_SH
 
@@ -65,11 +65,12 @@ jobs:
 
     - name: Load custom configuration
       run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        [ -e files ] && cp -r files openwrt/
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config   # 复制而非移动
         chmod +x $DIY_P2_SH
         cd openwrt && $GITHUB_WORKSPACE/$DIY_P2_SH
 
+    # ★ 缓存步骤完整保留，且 Key 中的 hashFiles 现在能正确读取文件 ★
     - name: Cache build artifacts
       uses: actions/cache@v4
       with:
@@ -77,14 +78,14 @@ jobs:
           openwrt/dl
           openwrt/build_dir
           ${{ env.CCACHE_DIR }}
-        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('openwrt/.config', 'feeds.conf.default', 'diy-part1.sh', 'diy-part2.sh') }}
+        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('.config', 'feeds.conf.default', 'diy-part1.sh', 'diy-part2.sh') }}
         restore-keys: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
 
     - name: Download package
       run: |
         cd openwrt
         make defconfig
-        make download -j8
+        make download -j$(nproc)
         find dl -size -1024c -delete
 
     - name: Compile the firmware
@@ -99,12 +100,7 @@ jobs:
       if: always()
       run: df -hT
 
-    - name: Upload bin directory
-      uses: actions/upload-artifact@v4
-      if: success() && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
+    # 已禁用 bin 上传（UPLOAD_BIN_DIR=false）
 
     - name: Organize firmware files
       if: success() && env.UPLOAD_FIRMWARE == 'true'
