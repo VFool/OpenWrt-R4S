@@ -75,7 +75,7 @@ jobs:
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
 
     # <<< 新增：通用配置迁移（适配当前分支） >>>
-    - name: Migrate .config to current branch
+    - name: Migrate .config
       run: |
         cd openwrt
         if [ -f .config ]; then
