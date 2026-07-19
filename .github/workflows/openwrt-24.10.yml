@@ -68,12 +68,29 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
+    # 加载自定义文件，但不执行 diy-part2.sh（之后单独执行）
     - name: Load custom configuration
       run: |
         [ -e files ] && cp -r files openwrt/
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
+
+    # <<< 新增：通用配置迁移（适配当前分支） >>>
+    - name: Migrate .config to current branch
+      run: |
         cd openwrt
+        if [ -f .config ]; then
+          ./scripts/diffconfig.sh > seed.config
+          cp seed.config .config
+          make defconfig
+        else
+          make defconfig
+        fi
+
+    # <<< 新增：执行自定义修改（在迁移之后） >>>
+    - name: Apply custom modifications
+      run: |
+        cd openwrt
+        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
     # ★ 缓存功能完整保留 ★
@@ -91,6 +108,7 @@ jobs:
       id: package
       run: |
         cd openwrt
+        # 确保已经 defconfig（如有必要可再执行一次）
         make defconfig
         make download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
