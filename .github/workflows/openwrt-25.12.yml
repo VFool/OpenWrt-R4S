@@ -3,6 +3,11 @@ name: openwrt-25.12
 on:
   repository_dispatch:
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: '缓存加速'
+        type: boolean
+        default: true
 
 env:
   REPO_URL: https://github.com/VFool/immortalwrt
@@ -11,7 +16,7 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
+  UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -73,8 +78,6 @@ jobs:
         [ -e files ] && cp -r files openwrt/
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
 
-    # Apply custom modifications (diy-part2.sh) before migrating config
-    # so that version settings are captured by diffconfig.sh
     - name: Apply custom modifications
       run: |
         cd openwrt
@@ -93,6 +96,7 @@ jobs:
         fi
 
     - name: Cache build artifacts
+      if: github.event.inputs.use_cache != 'false'
       uses: actions/cache@v4
       with:
         path: |

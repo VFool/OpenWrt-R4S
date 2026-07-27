@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       use_cache:
-        description: 'Cache acceleration'
+        description: '缓存加速'
         type: boolean
         default: true
 
@@ -77,7 +77,7 @@ jobs:
       run: |
         [ -e files ] && cp -r files openwrt/
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
-        
+
     - name: Apply custom modifications
       run: |
         cd openwrt
@@ -139,4 +139,35 @@ jobs:
         ls -la
         rm -rf packages
         mkdir -p release
-        cp *sysupgrade* *factory* release/ || true
+        cp *sysupgrade* *factory* *.img *.img.gz release/ 2>/dev/null || true
+        if [ -z "$(ls -A release)" ]; then
+          echo "No firmware files found!"
+          echo "status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "Firmware collected successfully."
+        fi
+
+    - name: Upload firmware to Release
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: openwrt-${{ env.REPO_BRANCH }}-${{ env.FILE_DATE }}
+        name: OpenWrt ${{ env.REPO_BRANCH }} ${{ env.FILE_DATE }}
+        body: |
+          Automated build of OpenWrt ${{ env.REPO_BRANCH }}
+          Commit: ${{ github.sha }}
+        files: |
+          openwrt/bin/targets/*/*/release/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload bin directory (optional)
+      if: env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-bin-${{ env.FILE_DATE }}
+        path: openwrt/bin/targets/*/*
+        retention-days: 7
