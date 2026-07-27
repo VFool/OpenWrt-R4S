@@ -1,8 +1,14 @@
-name: OpenWrt-25.12
+name: openwrt-25.12
 
 on:
   repository_dispatch:
   workflow_dispatch:
+    # ★ 新增：手动触发时的输入参数，用于控制缓存启用 ★
+    inputs:
+      use_cache:
+        description: '启用缓存加速编译（取消勾选则禁用缓存）'
+        type: boolean
+        default: true
 
 env:
   REPO_URL: https://github.com/VFool/immortalwrt
@@ -17,11 +23,6 @@ env:
   TZ: Asia/Shanghai
   CCACHE_DIR: /workdir/ccache
   CCACHE_MAXSIZE: 2G
-
-  # ★★★ 新增控制变量 ★★★
-  USE_CACHE: false                    # 是否使用缓存（true/false）
-  EXPORT_PACKAGES: true              # 是否导出软件包（ipk）
-  EXPORT_ALL_KMODS: true             # 是否确保所有内核模块被编译为 ipk（需配合 CONFIG_ALL_KMODS=y）
 
 jobs:
   build:
@@ -73,21 +74,13 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
+    # 加载自定义文件，但不执行 diy-part2.sh（之后单独执行）
     - name: Load custom configuration
       run: |
         [ -e files ] && cp -r files openwrt/
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
 
-    - name: Enable ALL_KMODS if needed
-      if: env.EXPORT_ALL_KMODS == 'true'
-      run: |
-        cd openwrt
-        # 如果 .config 中尚未设置 CONFIG_ALL_KMODS，则启用
-        if ! grep -q '^CONFIG_ALL_KMODS=y' .config; then
-          echo 'CONFIG_ALL_KMODS=y' >> .config
-          echo "✅ CONFIG_ALL_KMODS enabled"
-        fi
-
+    # <<< 新增：通用配置迁移（适配当前分支） >>>
     - name: Migrate .config
       run: |
         cd openwrt
@@ -99,14 +92,16 @@ jobs:
           make defconfig
         fi
 
+    # <<< 新增：执行自定义修改（在迁移之后） >>>
     - name: Apply custom modifications
       run: |
         cd openwrt
         chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
+    # ★ 缓存功能：通过按钮切换启用（若手动触发时取消勾选 `use_cache`，则跳过此步骤） ★
     - name: Cache build artifacts
-      if: env.USE_CACHE == 'true'   # 根据开关决定是否缓存
+      if: github.event.inputs.use_cache != 'false'   # 默认启用，取消勾选时传入 false 则跳过
       uses: actions/cache@v4
       with:
         path: |
@@ -120,6 +115,7 @@ jobs:
       id: package
       run: |
         cd openwrt
+        # 确保已经 defconfig（如有必要可再执行一次）
         make defconfig
         make download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
@@ -140,98 +136,17 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
+    # ★ 修正固件收集逻辑：适配 Rockchip 输出（.img.gz / .img） ★
     - name: Organize files
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' || env.EXPORT_PACKAGES == 'true' && !cancelled()
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
         echo "=== 当前目录内容 ==="
         ls -la
-
-        mkdir -p artifacts
-
-        # ---------- 导出固件 ----------
-        if [ "${{ env.UPLOAD_FIRMWARE }}" = "true" ]; then
-          mkdir -p artifacts/firmware
-          cp *sysupgrade* *factory* *.img *.img.gz artifacts/firmware/ 2>/dev/null || true
-          if [ -z "$(ls -A artifacts/firmware)" ]; then
-            echo "⚠️ 没有找到固件文件"
-          else
-            echo "✅ 固件已复制到 artifacts/firmware/"
-            ls -l artifacts/firmware/
-          fi
-        fi
-
-        # ---------- 导出软件包（包括内核模块 ipk） ----------
-        if [ "${{ env.EXPORT_PACKAGES }}" = "true" ]; then
-          if [ -d packages ]; then
-            mkdir -p artifacts/packages
-            cp -r packages/* artifacts/packages/
-            echo "✅ 软件包已复制到 artifacts/packages/"
-            ls -l artifacts/packages/
-            # 查看是否有内核模块
-            echo "=== 内核模块包列表 ==="
-            ls artifacts/packages/ | grep -E '^kmod-' || echo "没有找到 kmod-* 包，请检查是否已启用 CONFIG_ALL_KMODS"
-          else
-            echo "⚠️ 没有 packages 目录，可能编译未生成软件包"
-          fi
-        fi
-
-        echo "ARTIFACTS_DIR=$PWD/artifacts" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4
-      if: env.UPLOAD_FIRMWARE == 'true' && steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.ARTIFACTS_DIR }}/firmware
-
-    - name: Upload packages artifact
-      uses: actions/upload-artifact@v4
-      if: env.EXPORT_PACKAGES == 'true' && steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_packages${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.ARTIFACTS_DIR }}/packages
-
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.ARTIFACTS_DIR }}/firmware/*
-
-    - name: Upload packages to release (optional)
-      uses: softprops/action-gh-release@v2
-      if: env.EXPORT_PACKAGES == 'true' && env.UPLOAD_RELEASE == 'true' && steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        files: ${{ env.ARTIFACTS_DIR }}/packages/*
-
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        retain_days: 0
-        keep_minimum_runs: 2
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v0.2.1
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # 删除 packages 目录节省空间
+        rm -rf packages
+        # 创建 release 目录
+        mkdir -p release
+        # 复制所有可能的固件文件（支持 .bin, .img, .img.gz 等）
+        cp *sysupgrade* *fac
