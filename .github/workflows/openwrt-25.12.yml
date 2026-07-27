@@ -3,11 +3,6 @@ name: openwrt-25.12
 on:
   repository_dispatch:
   workflow_dispatch:
-    inputs:
-      use_cache:
-        description: 'Cache acceleration'
-        type: boolean
-        default: true
 
 env:
   REPO_URL: https://github.com/VFool/immortalwrt
@@ -16,7 +11,7 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: true
+  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -77,7 +72,9 @@ jobs:
       run: |
         [ -e files ] && cp -r files openwrt/
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
-        
+
+    # Apply custom modifications (diy-part2.sh) before migrating config
+    # so that version settings are captured by diffconfig.sh
     - name: Apply custom modifications
       run: |
         cd openwrt
@@ -96,7 +93,6 @@ jobs:
         fi
 
     - name: Cache build artifacts
-      if: github.event.inputs.use_cache != 'false'
       uses: actions/cache@v4
       with:
         path: |
@@ -139,4 +135,35 @@ jobs:
         ls -la
         rm -rf packages
         mkdir -p release
-        cp *sysupgrade* *factory* release/ || true
+        cp *sysupgrade* *factory* *.img *.img.gz release/ 2>/dev/null || true
+        if [ -z "$(ls -A release)" ]; then
+          echo "No firmware files found!"
+          echo "status=failure" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "Firmware collected successfully."
+        fi
+
+    - name: Upload firmware to Release
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: openwrt-${{ env.REPO_BRANCH }}-${{ env.FILE_DATE }}
+        name: OpenWrt ${{ env.REPO_BRANCH }} ${{ env.FILE_DATE }}
+        body: |
+          Automated build of OpenWrt ${{ env.REPO_BRANCH }}
+          Commit: ${{ github.sha }}
+        files: |
+          openwrt/bin/targets/*/*/release/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload bin directory (optional)
+      if: env.UPLOAD_BIN_DIR == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-bin-${{ env.FILE_DATE }}
+        path: openwrt/bin/targets/*/*
+        retention-days: 7
