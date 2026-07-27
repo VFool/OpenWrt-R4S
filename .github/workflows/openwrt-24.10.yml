@@ -1,11 +1,11 @@
-name: openwrt-24.10
+name: openwrt-24，10
 
 on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
       use_cache:
-        description: '启用缓存加速（勾选启用，取消则禁用）'
+        description: '缓存加速'
         type: boolean
         default: true
 
@@ -16,7 +16,7 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: true
+  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -130,35 +130,24 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    - name: Organize files
+    - name: Check firmware existence
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' || env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
-        rm -rf packages
-        mkdir -p release
-        cp *sysupgrade* *factory* *.img *.img.gz release/ 2>/dev/null || true
-        if [ -z "$(ls -A release)" ]; then
+        if ls *sysupgrade* *factory* *.img *.img.gz 1> /dev/null 2>&1; then
+          echo "status=success" >> $GITHUB_OUTPUT
+        else
           echo "status=failure" >> $GITHUB_OUTPUT
           exit 1
-        else
-          echo "status=success" >> $GITHUB_OUTPUT
         fi
 
-    - name: Upload bin directory
-      if: env.UPLOAD_BIN_DIR == 'true' && !cancelled()
-      uses: actions/upload-artifact@v4
-      with:
-        name: openwrt-bin-${{ env.REPO_BRANCH }}${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin/targets/*/*
-        retention-days: 7
-
-    - name: Upload firmware directory
+    - name: Upload firmware directory (Artifact)
       if: env.UPLOAD_FIRMWARE == 'true' && steps.organize.outputs.status == 'success' && !cancelled()
       uses: actions/upload-artifact@v4
       with:
         name: openwrt-firmware-${{ env.REPO_BRANCH }}${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin/targets/*/*/release
+        path: openwrt/bin/targets/*/*
         retention-days: 7
 
     - name: Generate release tag
@@ -182,7 +171,11 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         name: OpenWrt ${{ env.REPO_BRANCH }} ${{ env.FILE_DATE }}
         body_path: release.txt
-        files: openwrt/bin/targets/*/*/release/*
+        files: |
+          openwrt/bin/targets/*/*/*sysupgrade*
+          openwrt/bin/targets/*/*/*factory*
+          openwrt/bin/targets/*/*/*.img
+          openwrt/bin/targets/*/*/*.img.gz
         draft: false
         prerelease: false
 
