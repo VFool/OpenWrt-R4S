@@ -6,7 +6,7 @@ on:
     # ★ 新增：手动触发时的输入参数，用于控制缓存启用 ★
     inputs:
       use_cache:
-        description: '启用缓存加速编译（取消勾选则禁用缓存）'
+        description: '缓存加速'
         type: boolean
         default: true
 
