@@ -19,7 +19,7 @@ env:
   CCACHE_MAXSIZE: 2G
 
   # ★★★ 新增控制变量 ★★★
-  USE_CACHE: true                    # 是否使用缓存（true/false）
+  USE_CACHE: false                    # 是否使用缓存（true/false）
   EXPORT_PACKAGES: true              # 是否导出软件包（ipk）
   EXPORT_ALL_KMODS: true             # 是否确保所有内核模块被编译为 ipk（需配合 CONFIG_ALL_KMODS=y）
 
