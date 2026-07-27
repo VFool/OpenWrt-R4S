@@ -3,6 +3,11 @@ name: openwrt-24.10
 on:
   repository_dispatch:
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: 'Cache acceleration'
+        type: boolean
+        default: true
 
 env:
   REPO_URL: https://github.com/VFool/immortalwrt
@@ -11,7 +16,7 @@ env:
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
+  UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
@@ -68,13 +73,17 @@ jobs:
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
-    # 加载自定义文件，但不执行 diy-part2.sh（之后单独执行）
     - name: Load custom configuration
       run: |
         [ -e files ] && cp -r files openwrt/
         [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+        
+    - name: Apply custom modifications
+      run: |
+        cd openwrt
+        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
+        $GITHUB_WORKSPACE/$DIY_P2_SH
 
-    # <<< 新增：通用配置迁移（适配当前分支） >>>
     - name: Migrate .config
       run: |
         cd openwrt
@@ -86,15 +95,8 @@ jobs:
           make defconfig
         fi
 
-    # <<< 新增：执行自定义修改（在迁移之后） >>>
-    - name: Apply custom modifications
-      run: |
-        cd openwrt
-        chmod +x $GITHUB_WORKSPACE/$DIY_P2_SH
-        $GITHUB_WORKSPACE/$DIY_P2_SH
-
-    # ★ 缓存功能完整保留 ★
     - name: Cache build artifacts
+      if: github.event.inputs.use_cache != 'false'
       uses: actions/cache@v4
       with:
         path: |
@@ -108,7 +110,6 @@ jobs:
       id: package
       run: |
         cd openwrt
-        # 确保已经 defconfig（如有必要可再执行一次）
         make defconfig
         make download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
@@ -129,7 +130,6 @@ jobs:
       if: (!cancelled())
       run: df -hT
 
-    # ★ 修正固件收集逻辑：适配 Rockchip 输出（.img.gz / .img） ★
     - name: Organize files
       id: organize
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
@@ -137,60 +137,6 @@ jobs:
         cd openwrt/bin/targets/*/*
         echo "=== 当前目录内容 ==="
         ls -la
-        # 删除 packages 目录节省空间
         rm -rf packages
-        # 创建 release 目录
         mkdir -p release
-        # 复制所有可能的固件文件（支持 .bin, .img, .img.gz 等）
-        cp *sysupgrade* *factory* *.img *.img.gz release/ 2>/dev/null || true
-        # 如果 release 为空，则报错
-        if [ -z "$(ls -A release)" ]; then
-          echo "❌ 没有找到任何固件文件！"
-          echo "status=failure" >> $GITHUB_OUTPUT
-          exit 1
-        else
-          echo "✅ 固件文件已收集："
-          ls -l release/
-          echo "FIRMWARE=$PWD/release" >> $GITHUB_ENV
-          echo "status=success" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@v4
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
-
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v2
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
-
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        retain_days: 0
-        keep_minimum_runs: 2
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v0.2.1
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        cp *sysupgrade* *factory* release/ || true
