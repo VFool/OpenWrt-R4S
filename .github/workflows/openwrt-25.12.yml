@@ -1,4 +1,4 @@
-name: OpenWrt Build (25.12)
+name: OpenWrt-25.12
 
 on:
   repository_dispatch:
