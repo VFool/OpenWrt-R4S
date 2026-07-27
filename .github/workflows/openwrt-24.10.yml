@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       use_cache:
-        description: '缓存加速'
+        description: '启用缓存加速（勾选启用，取消则禁用）'
         type: boolean
         default: true
 
@@ -103,7 +103,7 @@ jobs:
           openwrt/dl
           openwrt/build_dir
           ${{ env.CCACHE_DIR }}
-        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('.config', 'feeds.conf.default', 'diy-part1.sh', 'diy-part2.sh') }}
+        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'diy-part1.sh', 'diy-part2.sh') }}
         restore-keys: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
 
     - name: Download package
@@ -132,42 +132,72 @@ jobs:
 
     - name: Organize files
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: env.UPLOAD_FIRMWARE == 'true' || env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
-        echo "=== 当前目录内容 ==="
-        ls -la
         rm -rf packages
         mkdir -p release
         cp *sysupgrade* *factory* *.img *.img.gz release/ 2>/dev/null || true
         if [ -z "$(ls -A release)" ]; then
-          echo "No firmware files found!"
           echo "status=failure" >> $GITHUB_OUTPUT
           exit 1
         else
-          echo "Firmware collected successfully."
+          echo "status=success" >> $GITHUB_OUTPUT
         fi
 
-    - name: Upload firmware to Release
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: openwrt-${{ env.REPO_BRANCH }}-${{ env.FILE_DATE }}
-        name: OpenWrt ${{ env.REPO_BRANCH }} ${{ env.FILE_DATE }}
-        body: |
-          Automated build of OpenWrt ${{ env.REPO_BRANCH }}
-          Commit: ${{ github.sha }}
-        files: |
-          openwrt/bin/targets/*/*/release/*
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload bin directory (optional)
+    - name: Upload bin directory
       if: env.UPLOAD_BIN_DIR == 'true' && !cancelled()
       uses: actions/upload-artifact@v4
       with:
-        name: openwrt-bin-${{ env.FILE_DATE }}
+        name: openwrt-bin-${{ env.REPO_BRANCH }}${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin/targets/*/*
         retention-days: 7
+
+    - name: Upload firmware directory
+      if: env.UPLOAD_FIRMWARE == 'true' && steps.organize.outputs.status == 'success' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-firmware-${{ env.REPO_BRANCH }}${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: openwrt/bin/targets/*/*/release
+        retention-days: 7
+
+    - name: Generate release tag
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && steps.organize.outputs.status == 'success' && !cancelled()
+      run: |
+        echo "release_tag=${{ env.REPO_BRANCH }}-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+        cat > release.txt <<EOF
+        Automated build of OpenWrt ${{ env.REPO_BRANCH }}
+        Commit: ${{ github.sha }}
+        Build date: $(date +"%Y-%m-%d %H:%M:%S %Z")
+        Device: ${{ env.DEVICE_NAME }}
+        EOF
+
+    - name: Upload firmware to Release
+      if: env.UPLOAD_RELEASE == 'true' && steps.tag.outputs.release_tag != '' && !cancelled()
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: OpenWrt ${{ env.REPO_BRANCH }} ${{ env.FILE_DATE }}
+        body_path: release.txt
+        files: openwrt/bin/targets/*/*/release/*
+        draft: false
+        prerelease: false
+
+    - name: Delete old workflow runs
+      if: always() && github.event_name != 'pull_request'
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        retain_days: 0
+        keep_minimum_runs: 2
+
+    - name: Remove old Releases
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
