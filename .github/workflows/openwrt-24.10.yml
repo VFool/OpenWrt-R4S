@@ -101,9 +101,10 @@ jobs:
       with:
         path: |
           openwrt/dl
-          openwrt/build_dir
+          openwrt/staging_dir
+          openwrt/feeds
           ${{ env.CCACHE_DIR }}
-        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'diy-part1.sh', 'diy-part2.sh') }}
+        key: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'diy-part1.sh', 'diy-part2.sh', '.config') }}
         restore-keys: ${{ runner.os }}-openwrt-${{ env.REPO_BRANCH }}-
 
     - name: Download package
