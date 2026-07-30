@@ -6,4 +6,4 @@
 # Add a feed source
 
 #添加风扇控制程序
-echo 'src-git fancontrol https://github.com/VFool/luci-app-fancontrol' >>feeds.conf.default
+echo 'src-git fancontrol https://github.com/DHDAXCW/luci-app-fancontrol' >>feeds.conf.default
