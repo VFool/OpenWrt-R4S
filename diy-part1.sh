@@ -5,5 +5,6 @@
 
 # Add a feed source
 
-#添加风扇控制程序
+#添加额外源
 echo "src-git fancontrol https://github.com/JiaY-shi/fancontrol.git" >> feeds.conf.default
+echo "src-git UA3F https://github.com/SunBK201/UA3F.git" >> feeds.conf.default
